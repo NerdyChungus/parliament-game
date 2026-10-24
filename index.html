@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secret Hitler - Realtime Online Edition</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        parchment: '#f4ebd0',
+                        'parchment-dark': '#e6d7b8',
+                        'liberal-blue': '#1e3a8a',
+                        'liberal-light': '#3b82f6',
+                        'fascist-red': '#881337',
+                        'fascist-light': '#e11d48',
+                        'gold-brass': '#d97706',
+                        'brass-dark': '#92400e',
+                        'ink-black': '#1c1917',
+                    },
+                    fontFamily: {
+                        serif: ['Georgia', 'Cambria', 'serif'],
+                        mono: ['Courier New', 'Courier', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f4ebd0;
+            font-family: 'Georgia', serif;
+            user-select: none;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1c1917;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #d97706;
+            border-radius: 3px;
+        }
+
+        .paper-card {
+            background: linear-gradient(135deg, #f4ebd0 0%, #e6d7b8 100%);
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.15), 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            border: 2px solid #b45309;
+        }
+
+        @keyframes active-player-pulse {
+            0%, 100% { border-color: #d97706; box-shadow: 0 0 5px #d97706; }
+            50% { border-color: #fbbf24; box-shadow: 0 0 18px #fbbf24; }
+        }
+
+        .active-player-highlight {
+            animation: active-player-pulse 2s infinite;
+        }
+
+        .stamp-liberal {
+            border: 4px solid #1e3a8a;
+            color: #1e3a8a;
+            text-transform: uppercase;
+            font-weight: bold;
+            transform: rotate(-8deg);
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            box-shadow: 0 0 0 2px #1e3a8a inset;
+        }
+
+        .stamp-fascist {
+            border: 4px solid #881337;
+            color: #881337;
+            text-transform: uppercase;
+            font-weight: bold;
+            transform: rotate(8deg);
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            box-shadow: 0 0 0 2px #881337 inset;
+        }
+    </style>
+
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase Config Setup
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : { apiKey: "demo-key", authDomain: "demo.firebaseapp.com", projectId: "demo-app", storageBucket: "demo.appspot.com", messagingSenderId: "12345", appId: "1:12345:web:123" };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        window.db = db;
+        window.auth = auth;
+        window.doc = doc;
+        window.setDoc = setDoc;
+        window.getDoc = getDoc;
+        window.updateDoc = updateDoc;
+        window.onSnapshot = onSnapshot;
+        window.collection = collection;
+
+        // Initialize Anonymous Auth
+        window.initAuth = async function() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                console.log("Authenticated as:", auth.currentUser.uid);
+            } catch (err) {
+                console.error("Auth Error:", err);
+            }
+        };
+
+        window.initAuth();
+    </script>
+</head>
+<body class="min-h-screen flex flex-col justify-between bg-slate-950 text-slate-100 font-serif">
+
+    <!-- TOP BAR / HEADER -->
+    <header class="bg-slate-900 border-b-2 border-amber-700/60 p-3 px-4 sm:px-8 flex justify-between items-center shadow-lg z-10">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-amber-700 flex items-center justify-center font-bold text-xl text-slate-950 border-2 border-amber-400 shadow">
+                &#9733;
+            </div>
+            <div>
+                <h1 class="text-xl sm:text-2xl font-bold tracking-wider text-amber-500 uppercase font-mono">Secret Hitler</h1>
+                <p class="text-xs text-amber-200/70 italic">Real-Time Online Parliamentary Strategy</p>
+            </div>
+        </div>
+
+        <div id="room-badge" class="hidden flex items-center gap-3 bg-slate-950/90 px-4 py-1.5 rounded-full border border-amber-600/60 font-mono text-sm">
+            <span class="text-xs text-slate-400 uppercase">Room:</span>
+            <span id="room-code-display" class="font-bold text-amber-400 text-base tracking-widest">----</span>
+            <button onclick="copyRoomCode()" title="Copy Room Code" class="hover:text-amber-300 text-xs text-amber-500 underline ml-1">Copy</button>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <button id="btn-show-roles-modal" onclick="openRoleReference()" class="hidden bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-600/50 text-xs px-3 py-2 rounded-lg font-mono transition">
+                &#128065; My Role
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN APP CONTAINER -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 flex flex-col gap-6">
+
+        <!-- LOBBY ENTRANCE (Create or Join) -->
+        <section id="entrance-screen" class="max-w-md mx-auto w-full bg-slate-900/90 border-2 border-amber-600/60 rounded-xl p-6 md:p-8 shadow-2xl backdrop-blur mt-8">
+            <h2 class="text-2xl font-bold text-amber-500 font-mono text-center uppercase tracking-widest border-b border-amber-800/60 pb-3 mb-6">
+                Parliament Lobby
+            </h2>
+
+            <div class="space-y-4 mb-6">
+                <div>
+                    <label class="block text-amber-200 font-bold mb-1 text-sm font-mono">Your Player Name:</label>
+                    <input type="text" id="input-player-name" placeholder="e.g. Bismarck" maxlength="14" class="w-full bg-slate-950 border border-amber-600/50 rounded-lg px-3 py-2 text-slate-100 font-serif focus:outline-none focus:border-amber-400">
+                </div>
+
+                <div class="border-t border-slate-800 pt-4">
+                    <button onclick="createRoom()" class="w-full bg-gradient-to-r from-amber-700 to-amber-600 hover:from-amber-600 hover:to-amber-500 text-slate-950 font-bold py-3 rounded-lg shadow-lg text-sm tracking-wider font-mono uppercase transition mb-4">
+                        Create New Room (Host)
+                    </button>
+
+                    <div class="relative flex py-1 items-center">
+                        <div class="flex-grow border-t border-slate-800"></div>
+                        <span class="flex-shrink mx-4 text-slate-500 font-mono text-xs">OR JOIN EXISTING</span>
+                        <div class="flex-grow border-t border-slate-800"></div>
+                    </div>
+
+                    <div class="mt-4 flex gap-2">
+                        <input type="text" id="input-room-code" placeholder="4-Letter Code" maxlength="4" class="uppercase text-center w-1/2 bg-slate-950 border border-amber-600/50 rounded-lg px-3 py-2 text-amber-400 font-mono font-bold tracking-widest focus:outline-none focus:border-amber-400">
+                        <button onclick="joinRoom()" class="w-1/2 bg-slate-800 hover:bg-slate-700 border border-amber-600/60 text-amber-400 font-bold font-mono py-2 rounded-lg text-sm uppercase transition">
+                            Join Room
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <p id="entrance-error" class="text-xs text-rose-400 font-mono text-center min-h-[1rem]"></p>
+        </section>
+
+        <!-- WAITING LOBBY (Before Host Starts) -->
+        <section id="waiting-lobby-screen" class="hidden max-w-xl mx-auto w-full bg-slate-900 border-2 border-amber-600/60 rounded-xl p-6 shadow-2xl">
+            <div class="flex justify-between items-center border-b border-amber-800/60 pb-3 mb-4">
+                <h3 class="text-xl font-bold text-amber-400 font-mono uppercase">Lobby Delegation</h3>
+                <span id="lobby-player-count" class="text-xs font-mono bg-amber-950 border border-amber-700/60 px-3 py-1 rounded-full text-amber-300">0 / 10 Players</span>
+            </div>
+
+            <div class="mb-6">
+                <label class="block text-xs font-mono text-slate-400 uppercase mb-2">Connected Delegates:</label>
+                <div id="lobby-players-list" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    <!-- Dynamic player chips -->
+                </div>
+            </div>
+
+            <!-- Host Fill AI Option -->
+            <div id="host-controls" class="hidden space-y-4 border-t border-slate-800 pt-4">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-mono text-slate-300">Fill empty slots with AI Bot Delegates?</span>
+                    <button onclick="toggleAddAI()" class="bg-slate-800 hover:bg-slate-700 border border-amber-600/50 text-amber-400 text-xs px-3 py-1 rounded font-mono">
+                        + Add AI Bot
+                    </button>
+                </div>
+
+                <button onclick="hostStartGame()" class="w-full bg-emerald-700 hover:bg-emerald-600 text-slate-950 font-bold py-3 rounded-lg shadow-lg font-mono uppercase tracking-wider text-base transition">
+                    Dispatch Assembly & Assign Roles
+                </button>
+            </div>
+
+            <div id="non-host-waiting" class="text-center italic text-sm text-slate-400 font-mono border-t border-slate-800 pt-4">
+                Waiting for the Host to start the election...
+            </div>
+        </section>
+
+        <!-- PLAYING GAME BOARD -->
+        <section id="game-board-screen" class="hidden flex flex-col gap-6">
+
+            <!-- TRACKS SECTION -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                <!-- LIBERAL TRACK -->
+                <div class="bg-gradient-to-br from-slate-900 to-blue-950/80 border-2 border-blue-600/60 rounded-xl p-4 shadow-xl flex flex-col justify-between">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-lg font-bold text-blue-400 font-mono uppercase tracking-wider flex items-center gap-2">
+                            <span class="inline-block w-3 h-3 bg-blue-500 rounded-full"></span> Liberal Policies
+                        </h3>
+                        <span class="text-xs text-blue-300/80 font-mono">5 Policies to Win</span>
+                    </div>
+
+                    <div id="liberal-track" class="grid grid-cols-5 gap-2 my-2"></div>
+                    <p class="text-xs text-slate-400 italic text-center mt-2">Liberals win by enacting 5 Liberal Policies or executing Hitler.</p>
+                </div>
+
+                <!-- FASCIST TRACK -->
+                <div class="bg-gradient-to-br from-slate-900 to-rose-950/80 border-2 border-rose-600/60 rounded-xl p-4 shadow-xl flex flex-col justify-between">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-lg font-bold text-rose-400 font-mono uppercase tracking-wider flex items-center gap-2">
+                            <span class="inline-block w-3 h-3 bg-rose-500 rounded-full"></span> Fascist Policies
+                        </h3>
+                        <span class="text-xs text-rose-300/80 font-mono">6 Policies to Win</span>
+                    </div>
+
+                    <div id="fascist-track" class="grid grid-cols-6 gap-2 my-2"></div>
+                    <p class="text-xs text-slate-400 italic text-center mt-2">Fascists win by enacting 6 Policies OR electing Hitler Chancellor after 3 policies.</p>
+                </div>
+            </div>
+
+            <!-- ELECTION TRACKER & ACTIVE GOVERNMENT -->
+            <div class="bg-slate-900/90 border border-amber-600/40 rounded-xl p-4 flex flex-col md:flex-row justify-between items-center gap-4 shadow-lg">
+                <div class="flex items-center gap-6 flex-wrap justify-center md:justify-start">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-mono uppercase text-amber-500">President:</span>
+                        <span id="current-president-display" class="font-bold text-amber-200 bg-amber-950/60 border border-amber-700/60 px-3 py-1 rounded-md text-sm">--</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-mono uppercase text-amber-500">Chancellor Nominee:</span>
+                        <span id="current-chancellor-display" class="font-bold text-amber-200 bg-amber-950/60 border border-amber-700/60 px-3 py-1 rounded-md text-sm">--</span>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3 bg-slate-950 px-4 py-2 rounded-lg border border-slate-800">
+                    <span class="text-xs font-mono text-slate-400 uppercase">Election Tracker:</span>
+                    <div class="flex gap-2">
+                        <div id="tracker-dot-0" class="w-4 h-4 rounded-full border border-amber-500 bg-amber-500 shadow-sm"></div>
+                        <div id="tracker-dot-1" class="w-4 h-4 rounded-full border border-amber-500/40 bg-slate-800"></div>
+                        <div id="tracker-dot-2" class="w-4 h-4 rounded-full border border-amber-500/40 bg-slate-800"></div>
+                    </div>
+                    <span class="text-xs text-rose-400 font-mono italic">(3 Fails = Chaos)</span>
+                </div>
+            </div>
+
+            <!-- WORKSPACE: PLAYERS & INTERACTION PANEL -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                <!-- PLAYER TABLE LIST -->
+                <div class="lg:col-span-2 bg-slate-900/80 border border-amber-600/30 rounded-xl p-4 shadow-lg">
+                    <h3 class="text-sm font-bold font-mono text-amber-500 uppercase tracking-wider mb-3 pb-2 border-b border-slate-800">
+                        Parliamentary Delegates
+                    </h3>
+                    <div id="players-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+                </div>
+
+                <!-- REAL-TIME INTERACTION PANEL -->
+                <div class="bg-slate-900 border-2 border-amber-600/60 rounded-xl p-5 shadow-xl flex flex-col justify-between">
+                    <div>
+                        <h3 id="phase-title" class="text-lg font-bold font-mono text-amber-400 uppercase tracking-wide border-b border-amber-800/60 pb-2 mb-4">
+                            Phase Title
+                        </h3>
+                        <div id="phase-instruction" class="text-sm text-slate-300 mb-6 font-serif leading-relaxed">
+                            Instructions for current turn will appear here.
+                        </div>
+
+                        <!-- CONTROLS ZONE -->
+                        <div id="interaction-zone" class="space-y-4"></div>
+                    </div>
+
+                    <!-- GAME LOG -->
+                    <div class="mt-6 pt-3 border-t border-slate-800">
+                        <div class="text-xs font-mono text-amber-500/80 uppercase mb-1">Parliamentary Log</div>
+                        <div id="game-log" class="h-32 overflow-y-auto bg-slate-950 p-2 rounded text-xs font-mono text-slate-300 space-y-1 border border-slate-800"></div>
+                    </div>
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- SECRET ROLE DOSSIER MODAL -->
+    <div id="role-modal" class="fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="max-w-md w-full bg-slate-900 border-2 border-amber-600 rounded-xl p-6 shadow-2xl text-slate-100 relative">
+            <h3 class="text-xl font-bold font-mono text-amber-400 uppercase tracking-wider mb-2 text-center">Secret Role Dossier</h3>
+            <p class="text-xs text-slate-400 text-center mb-4">Confidential Identification</p>
+            
+            <div id="role-modal-content" class="p-4 rounded-lg my-4 text-center"></div>
+
+            <div id="known-fascists-box" class="hidden bg-slate-950 p-3 rounded border border-rose-900/60 mb-4 text-xs font-mono">
+                <div class="text-rose-400 font-bold mb-1 uppercase">Known Faction Members:</div>
+                <div id="known-fascists-list" class="text-slate-300">--</div>
+            </div>
+
+            <button onclick="closeRoleReference()" class="w-full bg-amber-700 hover:bg-amber-600 text-slate-950 font-bold font-mono py-2 rounded uppercase tracking-wider transition">
+                Close Confidential File
+            </button>
+        </div>
+    </div>
+
+    <!-- GAME OVER SCREEN MODAL -->
+    <div id="gameover-modal" class="fixed inset-0 bg-slate-950/95 z-50 hidden flex items-center justify-center p-4">
+        <div class="max-w-xl w-full bg-slate-900 border-4 border-amber-600 rounded-2xl p-8 shadow-2xl text-center relative">
+            <div id="gameover-banner" class="text-4xl font-extrabold font-mono uppercase tracking-widest mb-4">VICTORY!</div>
+            <p id="gameover-subtitle" class="text-lg text-slate-300 font-serif mb-6">Reason description.</p>
+
+            <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 mb-6 text-left max-h-48 overflow-y-auto">
+                <h4 class="text-xs font-mono text-amber-500 uppercase mb-2">Secret Roles Revealed:</h4>
+                <div id="gameover-roles-list" class="space-y-1 text-xs font-mono"></div>
+            </div>
+
+            <button onclick="location.reload()" class="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold font-mono py-3 rounded-lg uppercase tracking-wider shadow-lg text-lg transition">
+                Back to Entrance
+            </button>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT GAME LOGIC WITH FIRESTORE -->
+    <script>
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'secret-hitler-app';
+
+        const FASCIST_POWERS = {
+            5: [null, null, "policy_peek", "execution", "execution", "win"],
+            6: [null, "investigate", "special_election", "execution", "execution", "win"],
+            7: ["investigate", "investigate", "special_election", "execution", "execution", "win"],
+            8: ["investigate", "investigate", "special_election", "execution", "execution", "win"],
+            9: ["investigate", "investigate", "special_election", "execution", "execution", "win"],
+            10: ["investigate", "investigate", "special_election", "execution", "execution", "win"]
+        };
+
+        const ROLE_DISTRIBUTION = {
+            5: { liberals: 3, fascists: 1, hitler: 1 },
+            6: { liberals: 4, fascists: 1, hitler: 1 },
+            7: { liberals: 4, fascists: 2, hitler: 1 },
+            8: { liberals: 5, fascists: 2, hitler: 1 },
+            9: { liberals: 5, fascists: 3, hitler: 1 },
+            10: { liberals: 6, fascists: 3, hitler: 1 }
+        };
+
+        /* LOCAL STATE */
+        let roomCode = null;
+        let myPlayerId = null;
+        let isHost = false;
+        let roomDocRef = null;
+        let roomUnsubscribe = null;
+        let currentGameData = null;
+
+        /* ROOM CREATION & JOINING */
+
+        function getRoomDocRef(code) {
+            return window.doc(window.db, 'artifacts', appId, 'public', 'data', 'rooms', code.toUpperCase());
+        }
+
+        async function createRoom() {
+            const name = document.getElementById('input-player-name').value.trim();
+            if (!name) {
+                showError("Please enter your player name.");
+                return;
+            }
+
+            if (!window.auth || !window.auth.currentUser) {
+                showError("Connecting to network... please try again in 2 seconds.");
+                return;
+            }
+
+            myPlayerId = window.auth.currentUser.uid;
+            roomCode = generateCode(4);
+            isHost = true;
+            roomDocRef = getRoomDocRef(roomCode);
+
+            const initialRoomData = {
+                code: roomCode,
+                hostId: myPlayerId,
+                status: 'LOBBY', // LOBBY, PLAYING, GAME_OVER
+                players: [
+                    { id: myPlayerId, name: name, isAI: false, isAlive: true, role: null }
+                ],
+                deck: [],
+                discard: [],
+                liberalPolicies: 0,
+                fascistPolicies: 0,
+                failedElections: 0,
+                presidentIdx: 0,
+                nominatedChancellorIdx: null,
+                previousPresidentIdx: null,
+                previousChancellorIdx: null,
+                phase: 'NOMINATION', // NOMINATION, VOTING, LEGISLATIVE_PRESIDENT, LEGISLATIVE_CHANCELLOR, EXECUTIVE_ACTION
+                votes: {}, // { playerId: 'JA' | 'NEIN' }
+                drawnPolicies: [],
+                logs: [`Room created by ${name}.`],
+                pendingPower: null,
+                winner: null,
+                winReason: ""
+            };
+
+            try {
+                await window.setDoc(roomDocRef, initialRoomData);
+                subscribeToRoom();
+            } catch (e) {
+                showError("Error creating room: " + e.message);
+            }
+        }
+
+        async function joinRoom() {
+            const name = document.getElementById('input-player-name').value.trim();
+            const codeInput = document.getElementById('input-room-code').value.trim().toUpperCase();
+
+            if (!name || !codeInput) {
+                showError("Please enter both Name and Room Code.");
+                return;
+            }
+
+            if (!window.auth || !window.auth.currentUser) {
+                showError("Connecting to network... please try again.");
+                return;
+            }
+
+            myPlayerId = window.auth.currentUser.uid;
+            roomCode = codeInput;
+            roomDocRef = getRoomDocRef(roomCode);
+
+            try {
+                const snap = await window.getDoc(roomDocRef);
+                if (!snap.exists()) {
+                    showError("Room not found! Check the room code.");
+                    return;
+                }
+
+                const data = snap.data();
+                if (data.status !== 'LOBBY') {
+                    showError("Game has already started in this room.");
+                    return;
+                }
+
+                let players = data.players || [];
+                if (players.length >= 10) {
+                    showError("Room is full (Max 10 players).");
+                    return;
+                }
+
+                // Add or update player in array
+                const existingIdx = players.findIndex(p => p.id === myPlayerId);
+                if (existingIdx !== -1) {
+                    players[existingIdx].name = name;
+                } else {
+                    players.push({ id: myPlayerId, name: name, isAI: false, isAlive: true, role: null });
+                }
+
+                await window.updateDoc(roomDocRef, { players: players });
+                isHost = (data.hostId === myPlayerId);
+                subscribeToRoom();
+
+            } catch (e) {
+                showError("Error joining room: " + e.message);
+            }
+        }
+
+        function toggleAddAI() {
+            if (!isHost || !currentGameData) return;
+            let players = currentGameData.players || [];
+            if (players.length >= 10) return;
+
+            const aiCount = players.filter(p => p.isAI).length + 1;
+            players.push({
+                id: 'ai_' + Math.random().toString(36).substr(2, 6),
+                name: `Bot Delegate ${aiCount}`,
+                isAI: true,
+                isAlive: true,
+                role: null
+            });
+
+            window.updateDoc(roomDocRef, { players: players });
+        }
+
+        /* SUBSCRIBER & SYNCHRONIZATION */
+
+        function subscribeToRoom() {
+            document.getElementById('entrance-screen').classList.add('hidden');
+            document.getElementById('room-badge').classList.remove('hidden');
+            document.getElementById('room-code-display').innerText = roomCode;
+
+            if (roomUnsubscribe) roomUnsubscribe();
+
+            roomUnsubscribe = window.onSnapshot(roomDocRef, (docSnap) => {
+                if (!docSnap.exists()) return;
+                const data = docSnap.data();
+                currentGameData = data;
+                isHost = (data.hostId === myPlayerId);
+
+                if (data.status === 'LOBBY') {
+                    renderLobby(data);
+                } else if (data.status === 'PLAYING') {
+                    renderGame(data);
+                } else if (data.status === 'GAME_OVER') {
+                    renderGameOver(data);
+                }
+            }, (err) => {
+                console.error("Firestore sync error:", err);
+            });
+        }
+
+        /* LOBBY RENDER & START */
+
+        function renderLobby(data) {
+            document.getElementById('waiting-lobby-screen').classList.remove('hidden');
+            document.getElementById('game-board-screen').classList.add('hidden');
+
+            const count = data.players.length;
+            document.getElementById('lobby-player-count').innerText = `${count} / 10 Players`;
+
+            const list = document.getElementById('lobby-players-list');
+            list.innerHTML = '';
+
+            data.players.forEach((p, idx) => {
+                const chip = document.createElement('div');
+                chip.className = "flex justify-between items-center bg-slate-950 p-2 rounded border border-slate-800 text-sm font-serif";
+                chip.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="text-amber-500 font-mono text-xs">${idx + 1}.</span>
+                        <span>${p.name}</span>
+                        ${p.id === data.hostId ? '<span class="text-[10px] font-mono text-amber-400 bg-amber-950 px-1.5 rounded border border-amber-800">HOST</span>' : ''}
+                        ${p.isAI ? '<span class="text-[10px] font-mono text-slate-500">[BOT]</span>' : ''}
+                    </div>
+                `;
+                list.appendChild(chip);
+            });
+
+            if (isHost) {
+                document.getElementById('host-controls').classList.remove('hidden');
+                document.getElementById('non-host-waiting').classList.add('hidden');
+            } else {
+                document.getElementById('host-controls').classList.add('hidden');
+                document.getElementById('non-host-waiting').classList.remove('hidden');
+            }
+        }
+
+        async function hostStartGame() {
+            if (!isHost || !currentGameData) return;
+            const players = currentGameData.players;
+            const count = players.length;
+
+            if (count < 5) {
+                alert("At least 5 players are needed to start Secret Hitler!");
+                return;
+            }
+
+            // Assign Roles
+            const dist = ROLE_DISTRIBUTION[count];
+            let rolesPool = [];
+            for (let i = 0; i < dist.liberals; i++) rolesPool.push('Liberal');
+            for (let i = 0; i < dist.fascists; i++) rolesPool.push('Fascist');
+            rolesPool.push('Hitler');
+            rolesPool = shuffle(rolesPool);
+
+            const assignedPlayers = players.map((p, idx) => ({
+                ...p,
+                role: rolesPool[idx],
+                isAlive: true
+            }));
+
+            // Prepare Deck (6 Liberal, 11 Fascist)
+            let deck = [];
+            for (let i = 0; i < 6; i++) deck.push('Liberal');
+            for (let i = 0; i < 11; i++) deck.push('Fascist');
+            deck = shuffle(deck);
+
+            const randomPres = Math.floor(Math.random() * count);
+
+            await window.updateDoc(roomDocRef, {
+                status: 'PLAYING',
+                players: assignedPlayers,
+                deck: deck,
+                discard: [],
+                liberalPolicies: 0,
+                fascistPolicies: 0,
+                failedElections: 0,
+                presidentIdx: randomPres,
+                nominatedChancellorIdx: null,
+                previousPresidentIdx: null,
+                previousChancellorIdx: null,
+                phase: 'NOMINATION',
+                votes: {},
+                drawnPolicies: [],
+                logs: [`Game launched with ${count} delegates. Deck shuffled.`],
+                pendingPower: null
+            });
+        }
+
+        /* REAL-TIME GAMEPLAY RENDER & LOGIC */
+
+        function renderGame(data) {
+            document.getElementById('waiting-lobby-screen').classList.add('hidden');
+            document.getElementById('game-board-screen').classList.remove('hidden');
+            document.getElementById('btn-show-roles-modal').classList.remove('hidden');
+
+            // Render Board Tracks
+            renderTracks(data);
+
+            // Render Header Gov
+            const pres = data.players[data.presidentIdx];
+            const chnc = data.nominatedChancellorIdx !== null ? data.players[data.nominatedChancellorIdx] : null;
+
+            document.getElementById('current-president-display').innerText = pres ? pres.name : '--';
+            document.getElementById('current-chancellor-display').innerText = chnc ? chnc.name : '--';
+
+            // Render Players
+            renderPlayersGrid(data);
+
+            // Render Game Logs
+            renderLogs(data.logs || []);
+
+            // Render Controls Panel
+            renderInteractionZone(data);
+
+            // Host AI Step Handler
+            if (isHost) {
+                handleAIStepsIfNeeded(data);
+            }
+        }
+
+        function renderTracks(data) {
+            // Liberal Track
+            const libTrack = document.getElementById('liberal-track');
+            libTrack.innerHTML = '';
+            for (let i = 1; i <= 5; i++) {
+                const filled = i <= data.liberalPolicies;
+                const card = document.createElement('div');
+                card.className = `aspect-[3/4] rounded-lg border-2 flex flex-col items-center justify-center p-1 text-center font-mono transition ${
+                    filled ? 'bg-blue-600 border-blue-300 text-slate-950 font-extrabold shadow-lg scale-105' : 'bg-slate-950/80 border-blue-900/60 text-blue-900'
+                }`;
+                card.innerHTML = `<span class="text-xs font-bold">${i}</span><span class="text-[10px] uppercase">${filled ? 'ENACTED' : 'LIBERAL'}</span>`;
+                libTrack.appendChild(card);
+            }
+
+            // Fascist Track
+            const fascTrack = document.getElementById('fascist-track');
+            fascTrack.innerHTML = '';
+            const powers = FASCIST_POWERS[data.players.length];
+
+            for (let i = 1; i <= 6; i++) {
+                const filled = i <= data.fascistPolicies;
+                const power = powers[i - 1];
+                let pText = power === 'investigate' ? 'Investigate' : power === 'special_election' ? 'Election' : power === 'policy_peek' ? 'Peek' : power === 'execution' ? 'Execute' : power === 'win' ? 'Win' : '';
+
+                const card = document.createElement('div');
+                card.className = `aspect-[3/4] rounded-lg border-2 flex flex-col items-center justify-between p-1 text-center font-mono transition ${
+                    filled ? 'bg-rose-700 border-rose-300 text-slate-950 font-extrabold shadow-lg scale-105' : 'bg-slate-950/80 border-rose-900/60 text-rose-900'
+                }`;
+                card.innerHTML = `
+                    <span class="text-xs font-bold">${i}</span>
+                    <span class="text-[9px] font-bold text-amber-500 uppercase">${pText}</span>
+                    <span class="text-[8px] uppercase">${filled ? 'ENACTED' : 'FASCIST'}</span>
+                `;
+                fascTrack.appendChild(card);
+            }
+
+            // Election Tracker
+            for (let i = 0; i < 3; i++) {
+                const dot = document.getElementById(`tracker-dot-${i}`);
+                if (i < data.failedElections) {
+                    dot.className = "w-4 h-4 rounded-full border border-rose-500 bg-rose-600 shadow-lg animate-pulse";
+                } else {
+                    dot.className = "w-4 h-4 rounded-full border border-amber-500/40 bg-slate-800";
+                }
+            }
+        }
+
+        function renderPlayersGrid(data) {
+            const grid = document.getElementById('players-grid');
+            grid.innerHTML = '';
+
+            data.players.forEach(p => {
+                const isPres = (p.id === data.players[data.presidentIdx].id);
+                const isChnc = (data.nominatedChancellorIdx !== null && p.id === data.players[data.nominatedChancellorIdx].id);
+                const hasVoted = (data.phase === 'VOTING' && data.votes && data.votes[p.id]);
+
+                const card = document.createElement('div');
+                card.className = `p-3 rounded-lg border flex justify-between items-center transition ${
+                    !p.isAlive 
+                    ? 'bg-slate-950 border-slate-900 opacity-40 line-through' 
+                    : isPres 
+                    ? 'bg-amber-950/40 border-amber-500 active-player-highlight' 
+                    : 'bg-slate-950/90 border-slate-800'
+                }`;
+
+                card.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full ${p.isAlive ? 'bg-emerald-500' : 'bg-rose-900'}"></span>
+                        <span class="font-serif text-sm font-bold ${p.isAlive ? 'text-slate-100' : 'text-slate-500'}">${p.name} ${p.id === myPlayerId ? '(You)' : ''}</span>
+                        ${p.isAI ? '<span class="text-[10px] font-mono text-slate-500">[BOT]</span>' : ''}
+                    </div>
+                    <div class="flex items-center gap-1 font-mono text-xs">
+                        ${hasVoted ? '<span class="text-xs text-amber-400 font-bold">&#10003; Voted</span>' : ''}
+                        ${isPres ? '<span class="bg-amber-600 text-slate-950 px-1.5 py-0.5 rounded font-bold">PRES</span>' : ''}
+                        ${isChnc ? '<span class="bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded font-bold">CHNC</span>' : ''}
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function renderLogs(logs) {
+            const container = document.getElementById('game-log');
+            container.innerHTML = '';
+            logs.forEach(l => {
+                const row = document.createElement('div');
+                row.className = "border-b border-slate-900 pb-0.5";
+                row.innerText = `> ${l}`;
+                container.appendChild(row);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        /* REAL-TIME INTERACTION ZONE CONTROLS */
+
+        function renderInteractionZone(data) {
+            const title = document.getElementById('phase-title');
+            const desc = document.getElementById('phase-instruction');
+            const zone = document.getElementById('interaction-zone');
+            zone.innerHTML = '';
+
+            const pres = data.players[data.presidentIdx];
+            const chnc = data.nominatedChancellorIdx !== null ? data.players[data.nominatedChancellorIdx] : null;
+
+            if (data.phase === 'NOMINATION') {
+                title.innerText = "Election: Nomination";
+                desc.innerText = `${pres.name} (President) is selecting a Chancellor candidate.`;
+
+                if (myPlayerId === pres.id) {
+                    const select = document.createElement('select');
+                    select.id = 'select-chancellor-candidate';
+                    select.className = 'w-full bg-slate-950 border border-amber-600/60 rounded px-3 py-2 text-slate-100 font-serif mb-3';
+
+                    const eligible = getEligibleChancellors(data);
+                    eligible.forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = p.id;
+                        opt.innerText = p.name;
+                        select.appendChild(opt);
+                    });
+
+                    const btn = document.createElement('button');
+                    btn.className = 'w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold font-mono py-2 rounded uppercase tracking-wider transition';
+                    btn.innerText = 'Nominate Chancellor';
+                    btn.onclick = () => {
+                        const val = document.getElementById('select-chancellor-candidate').value;
+                        if (val) submitNomination(val);
+                    };
+
+                    zone.appendChild(select);
+                    zone.appendChild(btn);
+                } else {
+                    zone.innerHTML = `<div class="text-center italic text-amber-300 font-mono">Waiting for President ${pres.name} to nominate a Chancellor...</div>`;
+                }
+
+            } else if (data.phase === 'VOTING') {
+                title.innerText = "Election: Ballot Voting";
+                desc.innerText = `Vote JA (Yes) or NEIN (No) for President ${pres.name} & Chancellor ${chnc ? chnc.name : ''}.`;
+
+                const myVote = data.votes ? data.votes[myPlayerId] : null;
+
+                if (!myVote) {
+                    zone.innerHTML = `
+                        <div class="flex gap-3">
+                            <button onclick="submitVote('JA')" class="flex-1 bg-blue-900 hover:bg-blue-800 border border-blue-500 text-blue-100 font-mono py-3 rounded font-bold uppercase tracking-wider text-sm transition">JA! (Yes)</button>
+                            <button onclick="submitVote('NEIN')" class="flex-1 bg-rose-900 hover:bg-rose-800 border border-rose-500 text-rose-100 font-mono py-3 rounded font-bold uppercase tracking-wider text-sm transition">NEIN! (No)</button>
+                        </div>
+                    `;
+                } else {
+                    zone.innerHTML = `<div class="text-center font-mono text-amber-400 font-bold p-3 bg-slate-950 border border-slate-800 rounded">Ballot Cast: [ ${myVote} ] - Awaiting other delegates...</div>`;
+                }
+
+            } else if (data.phase === 'LEGISLATIVE_PRESIDENT') {
+                title.innerText = "Legislative Session: President";
+                desc.innerText = `${pres.name} (President) is inspecting 3 policies and choosing 1 to discard in secret.`;
+
+                if (myPlayerId === pres.id) {
+                    const grid = document.createElement('div');
+                    grid.className = 'grid grid-cols-3 gap-2 mb-2';
+
+                    data.drawnPolicies.forEach((pol, idx) => {
+                        const card = document.createElement('button');
+                        card.className = `p-3 rounded-lg border-2 font-mono text-xs font-bold uppercase transition flex flex-col items-center justify-center gap-1 ${
+                            pol === 'Liberal' ? 'bg-blue-950/80 border-blue-500 text-blue-200 hover:bg-blue-900' : 'bg-rose-950/80 border-rose-500 text-rose-200 hover:bg-rose-900'
+                        }`;
+                        card.innerHTML = `<span>${pol}</span><span class="text-[9px] text-slate-400">Discard</span>`;
+                        card.onclick = () => presidentDiscard(idx);
+                        grid.appendChild(card);
+                    });
+
+                    zone.appendChild(grid);
+                } else {
+                    zone.innerHTML = `<div class="text-center italic text-amber-300 font-mono">President ${pres.name} is inspecting 3 policy cards...</div>`;
+                }
+
+            } else if (data.phase === 'LEGISLATIVE_CHANCELLOR') {
+                title.innerText = "Legislative Session: Chancellor";
+                desc.innerText = `${chnc ? chnc.name : 'Chancellor'} is choosing 1 policy to enact.`;
+
+                if (myPlayerId === chnc?.id) {
+                    const grid = document.createElement('div');
+                    grid.className = 'grid grid-cols-2 gap-3 mb-2';
+
+                    data.drawnPolicies.forEach((pol, idx) => {
+                        const card = document.createElement('button');
+                        card.className = `p-4 rounded-lg border-2 font-mono text-xs font-bold uppercase transition flex flex-col items-center justify-center gap-1 ${
+                            pol === 'Liberal' ? 'bg-blue-950/80 border-blue-500 text-blue-200 hover:bg-blue-900' : 'bg-rose-950/80 border-rose-500 text-rose-200 hover:bg-rose-900'
+                        }`;
+                        card.innerHTML = `<span class="text-sm">${pol}</span><span class="text-[10px] text-amber-400">Click to Enact</span>`;
+                        card.onclick = () => chancellorEnact(idx);
+                        grid.appendChild(card);
+                    });
+
+                    zone.appendChild(grid);
+                } else {
+                    zone.innerHTML = `<div class="text-center italic text-amber-300 font-mono">Chancellor ${chnc ? chnc.name : ''} is choosing 1 policy to enact...</div>`;
+                }
+
+            } else if (data.phase === 'EXECUTIVE_ACTION') {
+                const power = data.pendingPower;
+                title.innerText = `Executive Power: ${power ? power.toUpperCase().replace('_', ' ') : ''}`;
+                desc.innerText = `President ${pres.name} must execute parliamentary power.`;
+
+                if (myPlayerId === pres.id) {
+                    if (power === 'policy_peek') {
+                        const top3 = data.deck.slice(-3).reverse();
+                        zone.innerHTML = `
+                            <div class="text-xs font-mono text-amber-300 mb-2">Top 3 Deck Cards (Secret Peek):</div>
+                            <div class="flex gap-2 mb-3">
+                                ${top3.map(c => `<div class="p-2 border border-amber-600/60 rounded bg-slate-950 font-mono text-xs font-bold text-amber-400">${c}</div>`).join('')}
+                            </div>
+                            <button onclick="finishExecutivePower()" class="w-full bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold font-mono py-2 rounded uppercase tracking-wider">Acknowledge & Finish</button>
+                        `;
+                    } else if (power === 'investigate' || power === 'special_election' || power === 'execution') {
+                        const select = document.createElement('select');
+                        select.id = 'select-exec-target';
+                        select.className = 'w-full bg-slate-950 border border-amber-600/60 rounded px-3 py-2 text-slate-100 font-serif mb-3';
+
+                        const eligible = data.players.filter(p => p.isAlive && p.id !== pres.id);
+                        eligible.forEach(p => {
+                            const opt = document.createElement('option');
+                            opt.value = p.id;
+                            opt.innerText = p.name;
+                            select.appendChild(opt);
+                        });
+
+                        const btn = document.createElement('button');
+                        btn.className = 'w-full bg-rose-700 hover:bg-rose-600 text-slate-100 font-bold font-mono py-2 rounded uppercase tracking-wider transition';
+                        btn.innerText = `Execute ${power.replace('_', ' ')}`;
+                        btn.onclick = () => {
+                            const targetId = document.getElementById('select-exec-target').value;
+                            if (targetId) applyExecutivePower(power, targetId);
+                        };
+
+                        zone.appendChild(select);
+                        zone.appendChild(btn);
+                    }
+                } else {
+                    zone.innerHTML = `<div class="text-center italic text-amber-300 font-mono">President ${pres.name} is executing presidential power...</div>`;
+                }
+            }
+        }
+
+        /* GAME ACTION HANDLERS */
+
+        async function submitNomination(chancellorId) {
+            const chnc = currentGameData.players.find(p => p.id === chancellorId);
+            const pres = currentGameData.players[currentGameData.presidentIdx];
+
+            const updatedLogs = [...(currentGameData.logs || []), `${pres.name} nominated ${chnc.name} for Chancellor.`];
+
+            await window.updateDoc(roomDocRef, {
+                nominatedChancellorIdx: currentGameData.players.findIndex(p => p.id === chancellorId),
+                phase: 'VOTING',
+                votes: {},
+                logs: updatedLogs
+            });
+        }
+
+        async function submitVote(voteVal) {
+            const updatedVotes = { ...(currentGameData.votes || {}), [myPlayerId]: voteVal };
+
+            // Check if all alive players voted
+            const alivePlayers = currentGameData.players.filter(p => p.isAlive);
+            const allVoted = alivePlayers.every(p => updatedVotes[p.id] || p.isAI);
+
+            if (allVoted && isHost) {
+                // Tally as Host
+                tallyVotesHost(updatedVotes);
+            } else {
+                await window.updateDoc(roomDocRef, { votes: updatedVotes });
+            }
+        }
+
+        async function tallyVotesHost(finalVotes) {
+            let votesJa = 0;
+            let votesNein = 0;
+            let logDetails = [];
+
+            currentGameData.players.filter(p => p.isAlive).forEach(p => {
+                let vote = finalVotes[p.id] || (p.isAI ? (Math.random() > 0.4 ? 'JA' : 'NEIN') : 'NEIN');
+                if (vote === 'JA') votesJa++;
+                else votesNein++;
+                logDetails.push(`${p.name}: ${vote}`);
+            });
+
+            const passed = votesJa > votesNein;
+            const updatedLogs = [...(currentGameData.logs || []), `Vote Results: ${votesJa} JA / ${votesNein} NEIN (${passed ? 'PASSED' : 'FAILED'}).`];
+
+            if (passed) {
+                const chancellor = currentGameData.players[currentGameData.nominatedChancellorIdx];
+
+                // Hitler Win Check
+                if (currentGameData.fascistPolicies >= 3 && chancellor.role === 'Hitler') {
+                    await window.updateDoc(roomDocRef, {
+                        status: 'GAME_OVER',
+                        winner: 'Fascists',
+                        winReason: `${chancellor.name} (Hitler) was elected Chancellor after 3 Fascist policies were enacted!`,
+                        logs: updatedLogs
+                    });
+                    return;
+                }
+
+                // Draw 3 policies
+                let deck = [...currentGameData.deck];
+                let discard = [...currentGameData.discard];
+
+                if (deck.length < 3) {
+                    deck = shuffle(deck.concat(discard));
+                    discard = [];
+                    updatedLogs.push('Deck reshuffled with discard pile.');
+                }
+
+                const drawn = [deck.pop(), deck.pop(), deck.pop()];
+
+                await window.updateDoc(roomDocRef, {
+                    phase: 'LEGISLATIVE_PRESIDENT',
+                    failedElections: 0,
+                    deck: deck,
+                    discard: discard,
+                    drawnPolicies: drawn,
+                    logs: updatedLogs
+                });
+
+            } else {
+                // Failed Vote
+                let failedCount = currentGameData.failedElections + 1;
+
+                if (failedCount >= 3) {
+                    // Chaos Enactment
+                    let deck = [...currentGameData.deck];
+                    let discard = [...currentGameData.discard];
+                    if (deck.length < 1) {
+                        deck = shuffle(deck.concat(discard));
+                        discard = [];
+                    }
+
+                    const topPolicy = deck.pop();
+                    let libPol = currentGameData.liberalPolicies;
+                    let fascPol = currentGameData.fascistPolicies;
+
+                    if (topPolicy === 'Liberal') libPol++;
+                    else fascPol++;
+
+                    updatedLogs.push(`3 Failed Elections! Chaos enacts top policy: ${topPolicy}.`);
+
+                    // Check win
+                    if (libPol >= 5) {
+                        await window.updateDoc(roomDocRef, { status: 'GAME_OVER', winner: 'Liberals', winReason: '5 Liberal policies enacted through chaos!', logs: updatedLogs });
+                        return;
+                    }
+                    if (fascPol >= 6) {
+                        await window.updateDoc(roomDocRef, { status: 'GAME_OVER', winner: 'Fascists', winReason: '6 Fascist policies enacted through chaos!', logs: updatedLogs });
+                        return;
+                    }
+
+                    const nextPres = getNextPresidentIdx(currentGameData);
+
+                    await window.updateDoc(roomDocRef, {
+                        phase: 'NOMINATION',
+                        failedElections: 0,
+                        liberalPolicies: libPol,
+                        fascistPolicies: fascPol,
+                        deck: deck,
+                        discard: discard,
+                        presidentIdx: nextPres,
+                        nominatedChancellorIdx: null,
+                        logs: updatedLogs
+                    });
+
+                } else {
+                    const nextPres = getNextPresidentIdx(currentGameData);
+
+                    await window.updateDoc(roomDocRef, {
+                        phase: 'NOMINATION',
+                        failedElections: failedCount,
+                        presidentIdx: nextPres,
+                        nominatedChancellorIdx: null,
+                        logs: updatedLogs
+                    });
+                }
+            }
+        }
+
+        async function presidentDiscard(index) {
+            let drawn = [...currentGameData.drawnPolicies];
+            const discarded = drawn.splice(index, 1)[0];
+            const discard = [...(currentGameData.discard || []), discarded];
+
+            const logs = [...(currentGameData.logs || []), `President discarded 1 policy in secret.`];
+
+            await window.updateDoc(roomDocRef, {
+                phase: 'LEGISLATIVE_CHANCELLOR',
+                drawnPolicies: drawn,
+                discard: discard,
+                logs: logs
+            });
+        }
+
+        async function chancellorEnact(index) {
+            const enacted = currentGameData.drawnPolicies[index];
+            const discarded = currentGameData.drawnPolicies[1 - index];
+            const discard = [...(currentGameData.discard || []), discarded];
+
+            let libPol = currentGameData.liberalPolicies;
+            let fascPol = currentGameData.fascistPolicies;
+
+            if (enacted === 'Liberal') libPol++;
+            else fascPol++;
+
+            const logs = [...(currentGameData.logs || []), `${enacted} Policy enacted by Chancellor!`];
+
+            // Win Condition Checks
+            if (libPol >= 5) {
+                await window.updateDoc(roomDocRef, { status: 'GAME_OVER', winner: 'Liberals', winReason: 'Liberals enacted 5 Liberal Policies!', logs: logs });
+                return;
+            }
+            if (fascPol >= 6) {
+                await window.updateDoc(roomDocRef, { status: 'GAME_OVER', winner: 'Fascists', winReason: 'Fascists enacted 6 Fascist Policies!', logs: logs });
+                return;
+            }
+
+            // Fascist Power Trigger Check
+            if (enacted === 'Fascist') {
+                const power = FASCIST_POWERS[currentGameData.players.length][fascPol - 1];
+                if (power && power !== 'win') {
+                    await window.updateDoc(roomDocRef, {
+                        liberalPolicies: libPol,
+                        fascistPolicies: fascPol,
+                        discard: discard,
+                        previousPresidentIdx: currentGameData.presidentIdx,
+                        previousChancellorIdx: currentGameData.nominatedChancellorIdx,
+                        phase: 'EXECUTIVE_ACTION',
+                        pendingPower: power,
+                        logs: logs
+                    });
+                    return;
+                }
+            }
+
+            const nextPres = getNextPresidentIdx(currentGameData);
+
+            await window.updateDoc(roomDocRef, {
+                liberalPolicies: libPol,
+                fascistPolicies: fascPol,
+                discard: discard,
+                previousPresidentIdx: currentGameData.presidentIdx,
+                previousChancellorIdx: currentGameData.nominatedChancellorIdx,
+                presidentIdx: nextPres,
+                nominatedChancellorIdx: null,
+                phase: 'NOMINATION',
+                logs: logs
+            });
+        }
+
+        async function applyExecutivePower(power, targetId) {
+            const target = currentGameData.players.find(p => p.id === targetId);
+            const logs = [...(currentGameData.logs || [])];
+
+            if (power === 'investigate') {
+                const party = (target.role === 'Fascist' || target.role === 'Hitler') ? 'Fascist' : 'Liberal';
+                logs.push(`President investigated ${target.name}'s loyalty.`);
+                alert(`Confidential Investigation Result: ${target.name} belongs to the [ ${party} Party ].`);
+                finishExecutivePower(logs);
+
+            } else if (power === 'special_election') {
+                logs.push(`President appointed ${target.name} for a Special Election.`);
+                const targetIdx = currentGameData.players.findIndex(p => p.id === targetId);
+
+                await window.updateDoc(roomDocRef, {
+                    presidentIdx: targetIdx,
+                    nominatedChancellorIdx: null,
+                    phase: 'NOMINATION',
+                    pendingPower: null,
+                    logs: logs
+                });
+
+            } else if (power === 'execution') {
+                logs.push(`EXECUTION! ${target.name} was executed.`);
+                const updatedPlayers = currentGameData.players.map(p => p.id === targetId ? { ...p, isAlive: false } : p);
+
+                if (target.role === 'Hitler') {
+                    await window.updateDoc(roomDocRef, {
+                        players: updatedPlayers,
+                        status: 'GAME_OVER',
+                        winner: 'Liberals',
+                        winReason: `${target.name} (Hitler) was executed!`,
+                        logs: logs
+                    });
+                    return;
+                }
+
+                finishExecutivePower(logs, updatedPlayers);
+            }
+        }
+
+        async function finishExecutivePower(logs, players = null) {
+            const nextPres = getNextPresidentIdx(currentGameData);
+            await window.updateDoc(roomDocRef, {
+                players: players || currentGameData.players,
+                presidentIdx: nextPres,
+                nominatedChancellorIdx: null,
+                phase: 'NOMINATION',
+                pendingPower: null,
+                logs: logs
+            });
+        }
+
+        /* GAME OVER SCREEN */
+
+        function renderGameOver(data) {
+            const modal = document.getElementById('gameover-modal');
+            const banner = document.getElementById('gameover-banner');
+            const sub = document.getElementById('gameover-subtitle');
+            const rolesList = document.getElementById('gameover-roles-list');
+
+            if (data.winner === 'Liberals') {
+                banner.innerText = 'LIBERAL VICTORY!';
+                banner.className = 'text-3xl font-extrabold font-mono uppercase tracking-widest mb-3 text-blue-500';
+            } else {
+                banner.innerText = 'FASCIST VICTORY!';
+                banner.className = 'text-3xl font-extrabold font-mono uppercase tracking-widest mb-3 text-rose-600';
+            }
+
+            sub.innerText = data.winReason || '';
+
+            rolesList.innerHTML = '';
+            data.players.forEach(p => {
+                const row = document.createElement('div');
+                row.className = 'flex justify-between py-1 border-b border-slate-800';
+                row.innerHTML = `<span>${p.name}</span><span class="font-bold ${p.role === 'Liberal' ? 'text-blue-400' : p.role === 'Fascist' ? 'text-rose-400' : 'text-amber-500'}">${p.role}</span>`;
+                rolesList.appendChild(row);
+            });
+
+            modal.classList.remove('hidden');
+        }
+
+        /* HOST AUTOMATED STEPS FOR AI BOTS */
+
+        function handleAIStepsIfNeeded(data) {
+            const pres = data.players[data.presidentIdx];
+            const chnc = data.nominatedChancellorIdx !== null ? data.players[data.nominatedChancellorIdx] : null;
+
+            if (data.phase === 'NOMINATION' && pres.isAI) {
+                setTimeout(() => {
+                    const eligible = getEligibleChancellors(data);
+                    if (eligible.length > 0) {
+                        const randomChnc = eligible[Math.floor(Math.random() * eligible.length)];
+                        submitNomination(randomChnc.id);
+                    }
+                }, 1200);
+            }
+
+            if (data.phase === 'VOTING') {
+                const unvotedAI = data.players.filter(p => p.isAlive && p.isAI && (!data.votes || !data.votes[p.id]));
+                if (unvotedAI.length > 0) {
+                    const votes = { ...(data.votes || {}) };
+                    unvotedAI.forEach(ai => {
+                        votes[ai.id] = Math.random() > 0.4 ? 'JA' : 'NEIN';
+                    });
+                    
+                    const aliveCount = data.players.filter(p => p.isAlive).length;
+                    if (Object.keys(votes).length === aliveCount) {
+                        tallyVotesHost(votes);
+                    } else {
+                        window.updateDoc(roomDocRef, { votes: votes });
+                    }
+                }
+            }
+
+            if (data.phase === 'LEGISLATIVE_PRESIDENT' && pres.isAI) {
+                setTimeout(() => {
+                    const libIdx = data.drawnPolicies.indexOf('Liberal');
+                    const discardIdx = (pres.role === 'Liberal' && libIdx !== -1) ? (1 - libIdx) : 0;
+                    presidentDiscard(discardIdx);
+                }, 1200);
+            }
+
+            if (data.phase === 'LEGISLATIVE_CHANCELLOR' && chnc?.isAI) {
+                setTimeout(() => {
+                    const libIdx = data.drawnPolicies.indexOf('Liberal');
+                    const enactIdx = (chnc.role === 'Liberal' && libIdx !== -1) ? libIdx : 0;
+                    chancellorEnact(enactIdx);
+                }, 1200);
+            }
+
+            if (data.phase === 'EXECUTIVE_ACTION' && pres.isAI) {
+                setTimeout(() => {
+                    const eligible = data.players.filter(p => p.isAlive && p.id !== pres.id);
+                    if (eligible.length > 0) {
+                        const target = eligible[Math.floor(Math.random() * eligible.length)];
+                        applyExecutivePower(data.pendingPower, target.id);
+                    } else {
+                        finishExecutivePower(data.logs);
+                    }
+                }, 1200);
+            }
+        }
+
+        /* HELPER UTILITIES */
+
+        function getEligibleChancellors(data) {
+            const alive = data.players.filter(p => p.isAlive);
+            return data.players.filter(p => {
+                if (!p.isAlive) return false;
+                if (p.id === data.players[data.presidentIdx].id) return false;
+                if (data.previousChancellorIdx !== null && p.id === data.players[data.previousChancellorIdx]?.id) return false;
+                if (alive.length > 5 && data.previousPresidentIdx !== null && p.id === data.players[data.previousPresidentIdx]?.id) return false;
+                return true;
+            });
+        }
+
+        function getNextPresidentIdx(data) {
+            let idx = data.presidentIdx;
+            do {
+                idx = (idx + 1) % data.players.length;
+            } while (!data.players[idx].isAlive);
+            return idx;
+        }
+
+        function openRoleReference() {
+            if (!currentGameData) return;
+            const myPlayer = currentGameData.players.find(p => p.id === myPlayerId);
+            if (!myPlayer) return;
+
+            const content = document.getElementById('role-modal-content');
+            const fascBox = document.getElementById('known-fascists-box');
+            const fascList = document.getElementById('known-fascists-list');
+
+            let roleBadgeClass = "";
+            let teamInfo = "";
+
+            if (myPlayer.role === 'Liberal') {
+                roleBadgeClass = "stamp-liberal";
+                teamInfo = "Goal: Enact 5 Liberal Policies OR Execute Hitler.";
+                fascBox.classList.add('hidden');
+            } else if (myPlayer.role === 'Fascist') {
+                roleBadgeClass = "stamp-fascist";
+                teamInfo = "Goal: Enact 6 Fascist Policies OR Elect Hitler Chancellor after 3 policies.";
+                fascBox.classList.remove('hidden');
+
+                const teammates = currentGameData.players
+                    .filter(p => p.role === 'Fascist' || p.role === 'Hitler')
+                    .map(p => `${p.name} (${p.role})`);
+                fascList.innerText = teammates.join(', ');
+
+            } else if (myPlayer.role === 'Hitler') {
+                roleBadgeClass = "stamp-fascist";
+                teamInfo = "Goal: Get elected Chancellor after 3 Fascist Policies OR enact 6 Fascist Policies.";
+
+                if (currentGameData.players.length <= 6) {
+                    fascBox.classList.remove('hidden');
+                    const fasc = currentGameData.players.find(p => p.role === 'Fascist');
+                    fascList.innerText = fasc ? `${fasc.name} (Fascist)` : 'None';
+                } else {
+                    fascBox.classList.add('hidden');
+                }
+            }
+
+            content.innerHTML = `
+                <div class="mb-4"><span class="${roleBadgeClass}">${myPlayer.role}</span></div>
+                <p class="text-xs font-serif text-slate-300">${teamInfo}</p>
+            `;
+
+            document.getElementById('role-modal').classList.remove('hidden');
+        }
+
+        function closeRoleReference() {
+            document.getElementById('role-modal').classList.add('hidden');
+        }
+
+        function generateCode(len) {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            let res = '';
+            for (let i = 0; i < len; i++) {
+                res += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return res;
+        }
+
+        function copyRoomCode() {
+            if (!roomCode) return;
+            const temp = document.createElement('input');
+            temp.value = roomCode;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            document.body.removeChild(temp);
+            alert(`Room Code ${roomCode} copied to clipboard!`);
+        }
+
+        function shuffle(array) {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex != 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        function showError(msg) {
+            document.getElementById('entrance-error').innerText = msg;
+        }
+    </script>
+</body>
+</html>
